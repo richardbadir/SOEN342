@@ -1,11 +1,20 @@
 from datetime import datetime
 from typing import List
 
+
 class TimeSlot:
     def __init__(self, start: datetime, end: datetime):
         self.booked: bool = False
         self.start: datetime = start
         self.end: datetime = end
+    def is_valid_slot(self, time_slot) -> bool:
+        # Check if the time slot is available
+        for availability in self.availabilities:
+            if (availability.start <= time_slot.start and 
+                availability.end >= time_slot.end and 
+                not availability.booked):
+                return True
+        return False
 
 class City:
     def __init__(self, name: str):
@@ -17,15 +26,12 @@ class Space:
         self.address: str = address
         self.city: City = city
         self.availabilities: List[TimeSlot] = []
+    
+    def hasAvailableTimeslot(startTime,TypicalDuration):
+        #for blala in bla bla, find .isvalid_slot
+        pass
 
-    def is_valid_slot(self, time_slot: TimeSlot) -> bool:
-        # Check if the time slot is available
-        for availability in self.availabilities:
-            if (availability.start <= time_slot.start and 
-                availability.end >= time_slot.end and 
-                not availability.booked):
-                return True
-        return False
+    
 
     def add_availability(self, time_slot: TimeSlot):
         self.availabilities.append(time_slot)
