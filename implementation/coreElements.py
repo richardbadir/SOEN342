@@ -1,12 +1,19 @@
-import pymongo
 from datetime import datetime, timedelta
 from bson import ObjectId
 from scheduling import *
 from abc import ABC, abstractmethod
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
 
-# MongoDB connection
-client = pymongo.MongoClient("mongodb://localhost:27017/")
-db = client["lesson_booking_system"]
+uri = "mongodb+srv://richard:hello123@cluster0.ohtoh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+# Create a new client and connect to the server
+client = MongoClient(uri, server_api=ServerApi('1'))
+# Send a ping to confirm a successful connection
+try:
+    client.admin.command('ping')
+    print("Pinged your deployment. You successfully connected to MongoDB!")
+except Exception as e:
+    print(e)
 
 class LessonType:
     def __init__(self, activity):
@@ -26,10 +33,11 @@ class Offering(ABC):
         #add to mongoDB
         pass
 class Writer(ABC):
-    def __new__(cls, *args, **kwargs):
-        if not cls._instance:
-            cls._instance = super(Writer, cls).__new__(cls, *args, **kwargs)
-        return cls._instance
+    #def __new__(cls, *args, **kwargs):
+        #if not cls._instance:
+            #cls._instance = super(Writer, cls).__new__(cls, *args, **kwargs)
+        #return cls._instance
+    pass
 class Reader():
     def view_offerings():
         pass
