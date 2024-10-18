@@ -67,8 +67,25 @@ class Writer(ABC):
         #return cls._instance
     pass
 class Reader():
-    def view_offerings():
-        return offerings.find({})
+    def view_offerings(self):
+        offs=offerings.find({"public":True})
+        ofs=[]
+        for o in offs:
+            offer={}
+            for element in o.keys():
+                if element=='location':
+                    location=spaces.find_one({"_id": o[element]})
+                    offer[element]=location
+                elif element=='lessonType':
+                    lesson=lessonType.find_one({"_id": o[element]})
+                    offer[element]=lesson
+                elif element=='organization':
+                    organization=organizations.find_one({"_id": o[element]})
+                    offer[element]=organization
+                else:
+                    offer[element]=o[element]
+            ofs.append(offer)
+        print(ofs)
 
 
 
@@ -102,14 +119,20 @@ class Instructor(Writer):
         offers = offerings.find({"availability": True, "status": "available"})
         listOfferings = []
         for offering in offers:
-            listOfferings.append(self.console.get_active_offerings(offering))
+            listOfferings.append(self.console.getActiveOfferings(offering))
         print(listOfferings)
+        self.console.hasReader=False
 
-    def take_offering(self, offering_id):
+    def takeOffering(self, offering_id):
         result = offerings.update_one(
             {"_id": ObjectId(offering_id), "status": "available"},
             {"$set": {"status": "taken", "instructor_phone": self.phone_number}}
         )
+        off=self.console.find_offering(offering_id)
+        self.console.setStatus(offering_id, 'taken')
+        self.console.makeOfferingPublic(offering_id)
+        self.console.hasReader=False
+        self.console.hasWriter=False
         if result.modified_count > 0:
             return True
         return False
@@ -120,6 +143,7 @@ class Administrator(Writer):
         self.console.hasWriter=True
 
     def make_offering_public(self, offering_id):
+        print(offering_id)
         result = offerings.update_one(
             {"_id": ObjectId(offering_id)},
             {"$set": {"public": True}}
@@ -160,9 +184,8 @@ class Console:
             print("No available time slot at that location for that time.")
         self.hasWriter=False
         
-        
 
-    def get_active_offerings(self, offering):
+    def getActiveOfferings(self, offering):
         offer={}
         for element in offering.keys():
             if element=='location':
@@ -182,12 +205,18 @@ class Console:
         offering = offerings.find_one({"_id": ObjectId(offering_id)})
         return offering
 
-    def set_status(self, offering_id, status):
+    def setStatus(self, offering_id, status):
         result = offerings.update_one(
             {"_id": ObjectId(offering_id)},
             {"$set": {"status": status}}
         )
         return result.modified_count > 0
+    def makeOfferingPublic(self, offering_id):
+         offerings.update_one(
+            {"_id": ObjectId(offering_id)},
+            {"$set": {"public": True}}
+        )
+        
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             cls._instance = super(Console, cls).__new__(cls, *args, **kwargs)
@@ -206,7 +235,7 @@ def main():
         print("\n1. Create Offering (Admin)")
         print("2. View Available Offerings (Instructor)")
         print("3. Take Offering (Instructor)")
-        print("4. Make Offering Public (Admin)")
+        print("4. View Offerings (Public)")
         print("5. Exit")
         
         choice = input("Enter your choice: ")
@@ -248,21 +277,21 @@ def main():
             if console.hasReader:
                 print("Reader(s) already present")
                 continue
+            specialization= input("Enter your specialization: ")
+            name= input("Enter your name: ")
+            phone= input("Enter your phone number: ")
+            instructor= Instructor(specialization, name, phone)
             offering_id = input("Enter offering ID to take: ")
-            if instructor.take_offering(offering_id):
+            if instructor.takeOffering(offering_id):
                 print("Offering taken successfully")
             else:
-                print("Failed to take offering")
+                print("Failed to take offering. Might already be taken or doesn't exist")
 
         elif choice == "4":
-            if console.hasReader:
-                print("Reader(s) already present")
-                continue
-            offering_id = input("Enter offering ID to make public: ")
-            if admin.make_offering_public(offering_id):
-                print("Offering made public successfully")
-            else:
-                print("Failed to make offering public")
+            console.hasReader=True
+            reader=Reader()
+            reader.view_offerings()
+            console.hasReader=False
 
         elif choice == "5":
             break
