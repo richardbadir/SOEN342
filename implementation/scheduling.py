@@ -1,18 +1,26 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
 
+uri = "mongodb+srv://richard:hello123@cluster0.ohtoh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+# Create a new client and connect to the server
+client = MongoClient(uri, server_api=ServerApi('1'))
+# Send a ping to confirm a successful connection
+
+db = client['Organizations']
+timeSlot = db['TimeSlots'] 
+spaces = db['Spaces'] 
 
 class TimeSlot:
     def __init__(self, start: datetime, end: datetime):
         self.booked: bool = False
         self.start: datetime = start
         self.end: datetime = end
-    def is_valid_slot(self, time_slot) -> bool:
+    def is_valid_slot(self, start, duration) -> bool:
         # Check if the time slot is available
-        for availability in self.availabilities:
-            if (availability.start <= time_slot.start and 
-                availability.end >= time_slot.end and 
-                not availability.booked):
+
+        if (self.start <= start and  self.end >= + timedelta(minutes=duration)):
                 return True
         return False
 
@@ -26,10 +34,18 @@ class Space:
         self.address: str = address
         self.city: City = city
         self.availabilities: List[TimeSlot] = []
+        if not spaces.find_one({"address":address, "city": city.id}):
+            spaces.insert_one({"address":address, "city": city.id})
     
-    def hasAvailableTimeslot(startTime,TypicalDuration):
-        #for blala in bla bla, find .isvalid_slot
-        pass
+    def hasAvailableTimeslot(self,startTime,TypicalDuration, space, city):
+   
+        time_slots=timeSlot.find({"space":space, "city": city, "available": True})
+        for ts in time_slots:
+            Timeslot= TimeSlot(ts.start, ts.end)
+            if Timeslot.is_valid_slot(startTime, TypicalDuration):
+                return Timeslot
+        return False
+
 
     
 
