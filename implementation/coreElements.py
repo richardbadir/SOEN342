@@ -88,10 +88,22 @@ class Instructor(Writer):
         self.specialization = specialization
         self.name = name
         self.phone_number = phone_number
+        self.console=Console()
+        self.console.hasReader=True
 
-    def view_available_offerings(self):
-        offerings = offerings.find({"availability": True, "status": "available"})
-        return list(offerings)
+        if not instructors.find_one({"name":name}):
+            result = organizations.insert_one({"name":name, "phoneNumber": phone_number, "Specialization": specialization})
+            self.id=result.inserted_id
+        else:
+            result=instructors.find_one({"name":name})
+            self.id=result.get('_id')
+
+    def viewAvailableOfferings(self):
+        offers = offerings.find({"availability": True, "status": "available"})
+        listOfferings = []
+        for offering in offers:
+            listOfferings.append(self.console.get_active_offerings(offering))
+        print(listOfferings)
 
     def take_offering(self, offering_id):
         result = offerings.update_one(
@@ -150,9 +162,21 @@ class Console:
         
         
 
-    def get_active_offerings(self):
-        offerings = offerings.find({"status": "available"})
-        return list(offerings)
+    def get_active_offerings(self, offering):
+        offer={}
+        for element in offering.keys():
+            if element=='location':
+                location=spaces.find_one({"_id": offering[element]})
+                offer[element]=location
+            elif element=='lessonType':
+                lesson=lessonType.find_one({"_id": offering[element]})
+                offer[element]=lesson
+            elif element=='organization':
+                organization=organizations.find_one({"_id": offering[element]})
+                offer[element]=organization
+            else:
+                offer[element]=offering[element]
+        return offer
 
     def find_offering(self, offering_id):
         offering = offerings.find_one({"_id": ObjectId(offering_id)})
@@ -171,7 +195,7 @@ class Console:
 
 def main():
     
-    instructor = Instructor("Yoga", "John Doe", "123-456-7890")
+    
     console = Console()
 
     while True:
@@ -213,9 +237,12 @@ def main():
             
 
         elif choice == "2":
-            offerings = instructor.view_available_offerings()
-            for offering in offerings:
-                print(f"ID: {offering['_id']}, Type: {offering['lesson_type']}, Location: {offering['location']}")
+            specialization= input("Enter your specialization: ")
+            name= input("Enter your name: ")
+            phone= input("Enter your phone number: ")
+            instructor= Instructor(specialization, name, phone)
+            instructor.viewAvailableOfferings()
+            
 
         elif choice == "3":
             if console.hasReader:
