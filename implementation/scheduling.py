@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import List
+from bson import ObjectId
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 
@@ -13,14 +14,18 @@ timeSlot = db['TimeSlots']
 spaces = db['Spaces'] 
 
 class TimeSlot:
-    def __init__(self, start: datetime, end: datetime):
+    def __init__(self, start: datetime, end: datetime, id):
         self.booked: bool = False
         self.start: datetime = start
         self.end: datetime = end
+        self.id=id
     def is_valid_slot(self, start, duration) -> bool:
         # Check if the time slot is available
-
-        if (self.start <= start and  self.end >= + timedelta(minutes=duration)):
+        if (self.start <= start and  self.end >= start+ timedelta(minutes=duration)):
+                timeSlot.update_one(
+                {"_id": ObjectId(self.id)},
+                {"$set": {"available": False}}
+                )
                 return True
         return False
 
@@ -34,14 +39,19 @@ class Space:
         self.address: str = address
         self.city: City = city
         self.availabilities: List[TimeSlot] = []
+        self.id=None
         if not spaces.find_one({"address":address, "city": city.id}):
-            spaces.insert_one({"address":address, "city": city.id})
+            result=spaces.insert_one({"address":address, "city": city.id})
+            self.id=result.inserted_id
+        else:
+            result=spaces.find_one({"address":address, "city": city.id})
+            self.id=result.get('_id')
     
-    def hasAvailableTimeslot(self,startTime,TypicalDuration, space, city):
-   
-        time_slots=timeSlot.find({"space":space, "city": city, "available": True})
+    def hasAvailableTimeslot(self,startTime,TypicalDuration, space):
+        time_slots=timeSlot.find({"space":space.id, "available": True})
+        
         for ts in time_slots:
-            Timeslot= TimeSlot(ts.start, ts.end)
+            Timeslot= TimeSlot(ts['start'], ts['end'], ts.get('_id'))
             if Timeslot.is_valid_slot(startTime, TypicalDuration):
                 return Timeslot
         return False

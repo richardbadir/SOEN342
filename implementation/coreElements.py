@@ -22,16 +22,31 @@ cities = db['City']
 instructors = db['Instructors'] 
 lessonType = db['LessonType'] 
 
+class Organization:
+    def __init__(self, name):
+        self.name = name
+        self.id= None
+        if not organizations.find_one({"name":name}):
+            result = organizations.insert_one({"name":name})
+            self.id=result.inserted_id
+        else:
+            result=organizations.find_one({"name":name})
+            self.id=result.get('_id')
 
 class LessonType:
     def __init__(self, activity):
         self.activity = activity
+        self.id= None
         if not lessonType.find_one({"activity":activity}):
-            lessonType.insert_one({"activity":activity})
+            result = lessonType.insert_one({"activity":activity})
+            self.id=result.inserted_id
+        else:
+            result=lessonType.find_one({"activity":activity})
+            self.id=result.get('_id')
 
     def get_typical_duration(self):
         document=lessonType.find_one({"activity":self.activity})
-        self.duration=document.duration
+        self.duration=document['duration']
         return self.duration
 
 class Offering(ABC):
@@ -40,9 +55,9 @@ class Offering(ABC):
         self.public = public
         self.status = status
         self.lesson_type = lesson_type
-    def add(self, start_time, duration, space,lesson,mode):
-        
-        result=offerings.insert_one({"availability":self.availability,"startTime": start_time, "duration": duration,"public":self.public, "status":self.status, "location":space,"lessonType":lesson, "mode":mode})
+    def add(self, start_time, duration, space,lesson,mode, organization):
+    
+        result=offerings.insert_one({"availability":self.availability,"startTime": start_time, "duration": duration,"public":self.public, "status":self.status, "location":space,"lessonType":lesson, "mode":mode, "organization": organization})
         return str(result.inserted_id)
     
 class Writer(ABC):
@@ -54,6 +69,7 @@ class Writer(ABC):
 class Reader():
     def view_offerings():
         return offerings.find({})
+
 
 
 class PrivateLesson(Offering):
@@ -114,33 +130,26 @@ class Console:
     hasWriter=False
     hasReader=False
     _instance = None
-    def create_offering(self, lesson_type, start_time, location, city, mode):
+    def create_offering(self, lesson_type, start_time, location, city, mode, organization):
         lesson=LessonType(lesson_type)
-        duration = lesson.get_typical_duration(start_time,duration)
-        
+        org=Organization(organization)
+        duration = lesson.get_typical_duration()
         c = City(city)
-        space=Space(lesson_type, location, city)
-        if space.hasAvailableTimeslot(start_time, duration):
+        space=Space(lesson_type, location, c)
+        if space.hasAvailableTimeslot(start_time, duration, space):
             if mode=="p":
-                offering=PrivateLesson(lesson,True,False,"available")
+                offering=PrivateLesson(True,False,"available", lesson.id)
             else:
-                offering=GroupLesson(lesson,True,False,"available", 0)
-            offering.add(start_time, duration, space.id, lesson.id, mode)
+                offering=GroupLesson(True,False,"available", lesson.id, 20)
+            id=offering.add(start_time, duration, space.id, lesson.id, mode, org.id)
+            print("Inserted Offering with id "+id)
 
         else:
-            print("No available time slot at that location, for that activity and at that time.")
-            return
+            print("No available time slot at that location for that time.")
+        self.hasWriter=False
         
-        offering={
-            "lessonType":lesson_type,
-            "startTime": start_time,
-            "location": location,
-            "mode": mode
-        } 
         
 
-        result = offerings.insert_one(offering)
-        return str(result.inserted_id)
     def get_active_offerings(self):
         offerings = offerings.find({"status": "available"})
         return list(offerings)
@@ -167,7 +176,7 @@ def main():
 
     while True:
         if console.hasWriter:
-            console.log("Writer already present")
+            print("Writer already present")
             break
         
         print("\n1. Create Offering (Admin)")
@@ -181,19 +190,27 @@ def main():
         
         if choice == "1":
             if console.hasReader:
-                console.log("Reader(s) already present")
+                print("Reader(s) already present")
                 continue
             admin = Administrator()
+            organization = input("Enter Organization name: ")
             lesson_type = input("Enter lesson type: ")
-            start_time = input("Enter a start time in format yyyy-mm-ddThh:mm")
+            while True:
+                start_time = input("Enter a start time in format yyyy-mm-ddThh:mm ")
+                try:
+                    start=datetime.strptime(start_time, "%Y-%m-%dT%H:%M")
+                except ValueError:
+                    print("Invalid format.")
+                    continue
+                break
             city= input("Enter a city: ")
             location = input("Enter address: ")
             mode = input("Enter p for private or g for group mode: ")
             while mode!="g" and mode!="p":
                 print("Invalid mode selected")
                 mode = input("Enter p for private or g for group mode: ")
-            offering_id = admin.console.create_offering(lesson_type, start_time, location, city, mode)
-            print(f"Offering created with ID: {offering_id}")
+            admin.console.create_offering(lesson_type, start, location, city, mode, organization)
+            
 
         elif choice == "2":
             offerings = instructor.view_available_offerings()
@@ -202,7 +219,7 @@ def main():
 
         elif choice == "3":
             if console.hasReader:
-                console.log("Reader(s) already present")
+                print("Reader(s) already present")
                 continue
             offering_id = input("Enter offering ID to take: ")
             if instructor.take_offering(offering_id):
@@ -212,7 +229,7 @@ def main():
 
         elif choice == "4":
             if console.hasReader:
-                console.log("Reader(s) already present")
+                print("Reader(s) already present")
                 continue
             offering_id = input("Enter offering ID to make public: ")
             if admin.make_offering_public(offering_id):
