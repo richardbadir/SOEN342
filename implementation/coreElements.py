@@ -20,7 +20,9 @@ offerings = db['Offerings']
 spaces = db['Spaces'] 
 cities = db['City'] 
 instructors = db['Instructors'] 
-lessonType = db['LessonType'] 
+lessonType = db['LessonType']
+customers = db['Customers']
+bookings = db['Bookings'] 
 
 class Organization:
     def __init__(self, name):
@@ -50,15 +52,40 @@ class LessonType:
         return self.duration
 
 class Offering(ABC):
-    def __init__(self, availability, public, status, lesson_type):
+    def __init__(self, availability, public, status, lesson_type, id=None):
         self.availability = availability
         self.public = public
         self.status = status
         self.lesson_type = lesson_type
+        self.id=id
     def add(self, start_time, duration, space,lesson,mode, organization):
+        if mode=="g":
+            result=offerings.insert_one({"availability":self.availability,"startTime": start_time, "duration": duration,"public":self.public, "status":self.status, "location":space,"lessonType":lesson, "mode":mode, "organization": organization, "places": 10})
+            return str(result.inserted_id)
+        else:
+            result=offerings.insert_one({"availability":self.availability,"startTime": start_time, "duration": duration,"public":self.public, "status":self.status, "location":space,"lessonType":lesson, "mode":mode, "organization": organization})
+            return str(result.inserted_id)
+    def checkAvailability(self):
+        return self.availability
     
-        result=offerings.insert_one({"availability":self.availability,"startTime": start_time, "duration": duration,"public":self.public, "status":self.status, "location":space,"lessonType":lesson, "mode":mode, "organization": organization})
-        return str(result.inserted_id)
+    def getOfferingMode(self):
+        result= offerings.find_one({"_id":ObjectId(self.id)})
+        return result['mode']
+    
+    def updateStatus(self, status):
+        if status=="booked":
+            offerings.update_one( {"_id": ObjectId(self.id)},
+            {"$set": {"availability": False}})
+    
+    def decreaseAvailableSpots(self):
+        
+        result= offerings.find_one({"_id": ObjectId(self.id)})
+        spots= result['places']
+        offerings.update_one( {"_id": ObjectId(self.id)},
+            {"$set": {"places": spots-1}})
+        if spots-1<=0:
+            self.updateStatus("booked")
+
     
 class Writer(ABC):
     #def __new__(cls, *args, **kwargs):
@@ -216,13 +243,84 @@ class Console:
             {"_id": ObjectId(offering_id)},
             {"$set": {"public": True}}
         )
+         
+    
+    def createBooking(self, offering, clientName, underageName, age):
         
+        off= offerings.find_one({"_id": ObjectId(offering), 'public':True})
+        if not off:
+            print("Invalid offering ID.")
+            return
+        
+        offer= Offering(off['availability'], off['public'], off['status'], off['lessonType'], off.get('_id'))
+        if not offer.checkAvailability():
+            print(f"Offering not available (Offering: {off})")
+            return
+        
+        id = None
+
+        if underageName:
+            result=customers.find_one({"first_name":underageName[0], "last_name": underageName[1], "age":int(age)})
+            id= result.get('_id')
+        
+        else:
+            result= customers.find_one({"first_name":clientName[0], "last_name": clientName[1], "age":int(age)})
+            id= result.get('_id')
+        
+        booking= Booking(offering,clientName, underageName, age, id)
+        booking.setStatus('active')
+        catalog=BookingCatalog()
+        catalog.add(booking)
+        
+
+        mode =offer.getOfferingMode()
+
+        if mode =="g":
+            offer.decreaseAvailableSpots()
+        else:
+            offer.updateStatus("booked")
+        
+        if underageName:
+            print(f"{clientName[0]} {clientName[1]} made a booking for their minor {underageName[0]} {underageName[1]} (who is {age} yrs old).")
+        else:
+            print(f"{clientName[0]} {clientName[1]} made a booking.")
+
+    def viewBookingDetails(self, clientId):
+        catalog=BookingCatalog()
+        items=catalog.getBookings(clientId)
+        for document in items:
+            print(document)
+
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             cls._instance = super(Console, cls).__new__(cls, *args, **kwargs)
         return cls._instance
 
+
+class BookingCatalog:
+    def __init__(self) -> None:
+        pass
+
+    def getBookings(self, clientId):
+        return bookings.find({"cid":ObjectId(clientId)})
+    
+    def add(self, booking):
+        result=bookings.insert_one({"cid":ObjectId(booking.cid), "oid": ObjectId(booking.oid), "status": booking.status})
+        print(f"Added booking {result}")
+
+class Booking:
+    def __init__(self, oid, clientName, underageName, age, cid) -> None:
+        self.oid=oid
+        self.clientName=clientName
+        self.underageName=underageName,
+        self.age=age
+        self.cid=cid
+    
+    def setStatus(self, status):
+        self.status=status
+    
 def main():
+
     
     
     console = Console()
@@ -236,7 +334,11 @@ def main():
         print("2. View Available Offerings (Instructor)")
         print("3. Take Offering (Instructor)")
         print("4. View Offerings (Public)")
-        print("5. Exit")
+        print("5. Register as a client")
+        print("6. Book (Client)")
+        print("7. View your bookings (Client)")
+        print("8. Cancel Booking (Client)")
+        print("9. Exit")
         
         choice = input("Enter your choice: ")
 
@@ -292,8 +394,94 @@ def main():
             reader=Reader()
             reader.view_offerings()
             console.hasReader=False
-
+        
         elif choice == "5":
+            if console.hasReader:
+                print("Reader(s) already present")
+                continue
+            fname= input("Enter your first name: ")
+            lname= input("Enter your last name: ")
+            age= input("Enter your age: ")
+
+            if customers.find_one({"first_name":fname, "last_name": lname, "age":int(age)}):
+                result = customers.find_one({"first_name":fname, "last_name": lname, "age":int(age)})
+                print(f"You are already registered as a client ({result}).")
+                continue
+
+            if int(age)<18:
+                print("Please pass the control over to your legal guardian.")
+                pfname= input("Enter guardian's first name:")
+                plname= input("Enter guardian's last name:")
+                page =input("Enter guardian's age:")
+
+                id= None
+                if not customers.find_one({"first_name":pfname, "last_name": plname, "age":int(page)}):
+                    result = customers.insert_one({"first_name":pfname, "last_name": plname, "age":int(page)})
+                    id=result.inserted_id
+                    print(f"Legal guardian, you are now registered as a client ({result}).")
+                else:
+                    result=customers.find_one({"first_name":pfname, "last_name": plname, "age":int(page)})
+                    id=result.get('_id')
+                    print(f"Legal guardian, you are already registered as a client ({result}).")
+
+                kid = customers.insert_one({"first_name":fname, "last_name": lname, "age":int(age), "guardian": id})
+                print(f"Minor, you are now registered as a client ({kid}).")
+           
+            else:
+                
+                result = customers.insert_one({"first_name":fname, "last_name": lname, "age":int(age)})
+                print(f"You are now registered as a client ({result}).")
+                
+
+        
+        elif choice == "6":
+            if console.hasReader:
+                print("Reader(s) already present")
+                continue
+            fname= input("Enter your first name: ")
+            lname= input("Enter your last name: ")
+            age=  input("Enter your age:  ")
+
+            if not customers.find_one({"first_name":fname, "last_name": lname, "age":int(age)}):
+                print(f"You are not yet registered as a client. Please register as a client befor booking classes.")
+                continue
+
+            offering= input("Enter the offering ID: ")
+            
+
+            clientName=[]
+            underageName=[]
+
+            if int(age)<18:
+                underageName.append(fname)
+                underageName.append(lname)
+                result=customers.find_one({"first_name":fname, "last_name": lname, "age":int(age)})
+                result=customers.find_one({"_id":result.get('_id')})
+                clientName.append(result['first_name'])
+                clientName.append(result['last_name'])
+            
+            else:
+                clientName.append(fname)
+                clientName.append(lname)
+            
+            console.createBooking(offering, clientName, underageName, age)
+
+        elif choice == "7":
+            if console.hasReader:
+                print("Reader(s) already present")
+                continue
+            clientId= input("Enter your client ID: ")
+            console.viewBookingDetails(clientId)
+
+        elif choice == "8":
+            if console.hasReader:
+                print("Reader(s) already present")
+                continue
+            id= input("Enter your clientID:")
+            
+
+
+        elif choice == "9":
             break
 
         else:
