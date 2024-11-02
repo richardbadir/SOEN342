@@ -76,6 +76,9 @@ class Offering(ABC):
         if status=="booked":
             offerings.update_one( {"_id": ObjectId(self.id)},
             {"$set": {"availability": False}})
+        else:
+            offerings.update_one( {"_id": ObjectId(self.id)},
+            {"$set": {"availability": True}})
     
     def decreaseAvailableSpots(self):
         
@@ -85,6 +88,15 @@ class Offering(ABC):
             {"$set": {"places": spots-1}})
         if spots-1<=0:
             self.updateStatus("booked")
+    
+    def increaseAvailableSpots(self):
+        
+        result= offerings.find_one({"_id": ObjectId(self.id)})
+        spots= result['places']
+        offerings.update_one( {"_id": ObjectId(self.id)},
+            {"$set": {"places": spots+1}})
+        if not result['availability']:
+            self.updateStatus("available")
 
     
 class Writer(ABC):
@@ -290,6 +302,30 @@ class Console:
         items=catalog.getBookings(clientId)
         for document in items:
             print(document)
+    
+    def cancelBooking(self, cid, bid):
+        catalog= BookingCatalog()
+        result=catalog.find(bid)
+
+        if not result:
+            print("No booking with that ID.")
+            return
+        if result['cid']!=ObjectId(cid):
+            print("This is not your booking!")
+            return
+        
+        oresult= offerings.find_one({"_id": ObjectId(result['oid'])})
+
+        
+        offering= Offering(oresult['availability'], oresult['public'], oresult['status'], oresult['lessonType'], oresult.get("_id"))
+
+        if offering.getOfferingMode() =="g":
+            offering.increaseAvailableSpots()
+        else:
+            offering.updateStatus("available")
+        
+        catalog.cancel(bid)
+        print("Success")
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
@@ -307,6 +343,14 @@ class BookingCatalog:
     def add(self, booking):
         result=bookings.insert_one({"cid":ObjectId(booking.cid), "oid": ObjectId(booking.oid), "status": booking.status})
         print(f"Added booking {result}")
+    
+    def find(self, bid):
+        return bookings.find_one({"_id":ObjectId(bid)})
+    
+    def cancel(self, bid):
+        bookings.update_one( {"_id": ObjectId(bid)},
+            {"$set": {"status": "cancelled"}})
+
 
 class Booking:
     def __init__(self, oid, clientName, underageName, age, cid) -> None:
@@ -477,7 +521,9 @@ def main():
             if console.hasReader:
                 print("Reader(s) already present")
                 continue
-            id= input("Enter your clientID:")
+            cid= input("Enter your clientID:")
+            bid= input("Enter your bookingID:")
+            console.cancelBooking(cid,bid)
             
 
 
