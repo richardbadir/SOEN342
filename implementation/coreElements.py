@@ -4,6 +4,10 @@ from scheduling import *
 from abc import ABC, abstractmethod
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
+import threading
+
+read = threading.Lock()
+write= threading.Lock()
 
 uri = "mongodb+srv://richard:hello123@cluster0.ohtoh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 # Create a new client and connect to the server
@@ -370,6 +374,7 @@ def main():
     console = Console()
 
     while True:
+        read.acquire()
         if console.hasWriter:
             print("Writer already present")
             break
@@ -388,6 +393,7 @@ def main():
 
         
         if choice == "1":
+            write.acquire()
             if console.hasReader:
                 print("Reader(s) already present")
                 continue
@@ -409,6 +415,7 @@ def main():
                 print("Invalid mode selected")
                 mode = input("Enter p for private or g for group mode: ")
             admin.console.create_offering(lesson_type, start, location, city, mode, organization)
+            write.release()
             
 
         elif choice == "2":
@@ -420,6 +427,7 @@ def main():
             
 
         elif choice == "3":
+            write.acquire()
             if console.hasReader:
                 print("Reader(s) already present")
                 continue
@@ -432,6 +440,7 @@ def main():
                 print("Offering taken successfully")
             else:
                 print("Failed to take offering. Might already be taken or doesn't exist")
+            write.release()
 
         elif choice == "4":
             console.hasReader=True
@@ -440,6 +449,7 @@ def main():
             console.hasReader=False
         
         elif choice == "5":
+            write.acquire()
             if console.hasReader:
                 print("Reader(s) already present")
                 continue
@@ -475,10 +485,11 @@ def main():
                 
                 result = customers.insert_one({"first_name":fname, "last_name": lname, "age":int(age)})
                 print(f"You are now registered as a client ({result}).")
-                
+            write.release()
 
         
         elif choice == "6":
+            write.acquire()
             if console.hasReader:
                 print("Reader(s) already present")
                 continue
@@ -509,6 +520,7 @@ def main():
                 clientName.append(lname)
             
             console.createBooking(offering, clientName, underageName, age)
+            write.release()
 
         elif choice == "7":
             if console.hasReader:
@@ -518,20 +530,24 @@ def main():
             console.viewBookingDetails(clientId)
 
         elif choice == "8":
+            write.acquire()
             if console.hasReader:
                 print("Reader(s) already present")
                 continue
             cid= input("Enter your clientID:")
             bid= input("Enter your bookingID:")
             console.cancelBooking(cid,bid)
+            write.release()
             
 
 
         elif choice == "9":
+            read.release()
             break
 
         else:
             print("Invalid choice. Please try again.")
+        read.release()
 
 if __name__ == "__main__":
     main()
