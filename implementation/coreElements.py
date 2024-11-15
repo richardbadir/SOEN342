@@ -44,7 +44,7 @@ class LessonType:
         self.activity = activity
         self.id= None
         if not lessonType.find_one({"activity":activity}):
-            result = lessonType.insert_one({"activity":activity})
+            result = lessonType.insert_one({"activity":activity, "duration":60})
             self.id=result.inserted_id
         else:
             result=lessonType.find_one({"activity":activity})
@@ -178,9 +178,11 @@ class Instructor(Writer):
 
         found=False
         for c in cities:
-            if offerings.find_one({"_id": ObjectId(offering_id),"city":c.id}):
-                found = True
-                break
+            locations= spaces.find({"city":c.id})
+            for l in locations:
+                if offerings.find_one({"_id": ObjectId(offering_id),"location":l.get("_id")}):
+                    found = True
+                    break
         
         if not found:
             print("This offering was not found in the cities you declared yourself available for")
@@ -219,6 +221,7 @@ class Administrator(Writer):
             instructors.delete_one({"_id": ObjectId(id)})
             offerings.update_many({"instructor_phone":result['phoneNumber']}, {"status":"available"})
             offerings.update_many({"instructor_phone":result['phoneNumber']}, {"$unset":{"instructor_phone":""}})
+            print("Successfully deleted instructor.")
         elif customers.find_one({"_id": ObjectId(id)}):
             customers.delete_one({"_id": ObjectId(id)})
             result = bookings.find({"cid":ObjectId(id)})
@@ -231,6 +234,8 @@ class Administrator(Writer):
                         offerings.update_one({"_id":off['_id']}, {"$inc": {"places": 1}, "availability":True})
                     else:
                         offerings.update_one({"_id":off['_id']}, {"availability":True})
+            
+            print("Successfully deleted client.")
         else:
             print("No client or instructor with provided ID.")
 
@@ -426,7 +431,7 @@ def main():
             print("Writer already present")
             break
         
-        print("\n1. Create Offering (Admin)")
+        print("\n1. Create Lesson (Admin)")
         print("2. View Available Lessons (Instructor)")
         print("3. Take Lesson (Instructor)")
         print("4. View Offerings (Public)")
@@ -613,6 +618,7 @@ def main():
             ID= input("Enter the client or instructor ID")
             admin=Administrator()
             admin.deleteAccount(ID)
+            console.hasWriter=False
             write.release()
 
         elif choice == "10":
