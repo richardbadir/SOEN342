@@ -149,7 +149,9 @@ class Instructor(Writer):
         self.name = name
         self.phone_number = phone_number
         self.console=Console()
-        self.console.hasReader=True
+        read.acquire()
+        self.console.readers+=1
+        read.release()
 
         if not instructors.find_one({"name":name}):
             result = organizations.insert_one({"name":name, "phoneNumber": phone_number, "Specialization": specialization})
@@ -164,9 +166,26 @@ class Instructor(Writer):
         for offering in offers:
             listOfferings.append(self.console.getActiveOfferings(offering))
         print(listOfferings)
-        self.console.hasReader=False
+        read.acquire()
+        self.console.readers-=1
+        read.release()
 
-    def takeOffering(self, offering_id):
+    def takeOffering(self, offering_id, city):
+        city= city.split(",")
+        cities= []
+        for c in city:
+            cities.append(City(c))
+
+        found=False
+        for c in cities:
+            if offerings.find_one({"_id": ObjectId(offering_id),"city":c.id}):
+                found = True
+                break
+        
+        if not found:
+            print("This offering was not found in the cities you declared yourself available for")
+            return
+
         result = offerings.update_one(
             {"_id": ObjectId(offering_id), "status": "available"},
             {"$set": {"status": "taken", "instructor_phone": self.phone_number}}
@@ -174,7 +193,9 @@ class Instructor(Writer):
         off=self.console.find_offering(offering_id)
         self.console.setStatus(offering_id, 'taken')
         self.console.makeOfferingPublic(offering_id)
-        self.console.hasReader=False
+        read.acquire()
+        self.console.readers-=1
+        read.release()
         self.console.hasWriter=False
         if result.modified_count > 0:
             return True
@@ -192,6 +213,26 @@ class Administrator(Writer):
             {"$set": {"public": True}}
         )
         return result.modified_count > 0
+    def deleteAccount(self, id):
+        if instructors.find_one({"_id": ObjectId(id)}):
+            result=instructors.find_one({"_id": ObjectId(id)})
+            instructors.delete_one({"_id": ObjectId(id)})
+            offerings.update_many({"instructor_phone":result['phoneNumber']}, {"status":"available"})
+            offerings.update_many({"instructor_phone":result['phoneNumber']}, {"$unset":{"instructor_phone":""}})
+        elif customers.find_one({"_id": ObjectId(id)}):
+            customers.delete_one({"_id": ObjectId(id)})
+            result = bookings.find({"cid":ObjectId(id)})
+            bookings.delete_many({"cid":ObjectId(id)})
+            for booking in result:
+                r=offerings.find({"_id":ObjectId(booking['oid'])})
+
+                for off in r:
+                    if off["mode"]=="g":
+                        offerings.update_one({"_id":off['_id']}, {"$inc": {"places": 1}, "availability":True})
+                    else:
+                        offerings.update_one({"_id":off['_id']}, {"availability":True})
+        else:
+            print("No client or instructor with provided ID.")
 
 class City():
     def __init__(self, city) -> None:
@@ -207,7 +248,7 @@ class City():
 
 class Console:
     hasWriter=False
-    hasReader=False
+    readers=0
     _instance = None
     def create_offering(self, lesson_type, start_time, location, city, mode, organization):
         lesson=LessonType(lesson_type)
@@ -282,7 +323,13 @@ class Console:
         else:
             result= customers.find_one({"first_name":clientName[0], "last_name": clientName[1], "age":int(age)})
             id= result.get('_id')
-        
+        result=bookings.find({"cid": id})
+        for booking in result:
+            res= offerings.find({"_id":booking['oid'], 'startTime':off['startTime']})
+            if res:
+                print("You already have a booking at this time.")
+                return
+
         booking= Booking(offering,clientName, underageName, age, id)
         booking.setStatus('active')
         catalog=BookingCatalog()
@@ -374,28 +421,30 @@ def main():
     console = Console()
 
     while True:
-        read.acquire()
+    
         if console.hasWriter:
             print("Writer already present")
             break
         
         print("\n1. Create Offering (Admin)")
-        print("2. View Available Offerings (Instructor)")
-        print("3. Take Offering (Instructor)")
+        print("2. View Available Lessons (Instructor)")
+        print("3. Take Lesson (Instructor)")
         print("4. View Offerings (Public)")
         print("5. Register as a client")
         print("6. Book (Client)")
-        print("7. View your bookings (Client)")
-        print("8. Cancel Booking (Client)")
-        print("9. Exit")
+        print("7. View your bookings (Client or Admin)")
+        print("8. Cancel Booking (Client or Admin)")
+        print("9. Delete an Instructor's or Client's account (Admin).")
+        print("10. Exit")
         
         choice = input("Enter your choice: ")
 
         
         if choice == "1":
             write.acquire()
-            if console.hasReader:
+            if console.readers:
                 print("Reader(s) already present")
+                write.release()
                 continue
             admin = Administrator()
             organization = input("Enter Organization name: ")
@@ -419,39 +468,52 @@ def main():
             
 
         elif choice == "2":
-            specialization= input("Enter your specialization: ")
-            name= input("Enter your name: ")
-            phone= input("Enter your phone number: ")
-            instructor= Instructor(specialization, name, phone)
-            instructor.viewAvailableOfferings()
-            
-
-        elif choice == "3":
             write.acquire()
-            if console.hasReader:
+            if console.readers:
                 print("Reader(s) already present")
+                write.release()
                 continue
             specialization= input("Enter your specialization: ")
             name= input("Enter your name: ")
             phone= input("Enter your phone number: ")
             instructor= Instructor(specialization, name, phone)
+            instructor.viewAvailableOfferings()
+            write.release()
+            
+
+        elif choice == "3":
+            write.acquire()
+            if console.readers:
+                print("Reader(s) already present")
+                write.release()
+                continue
+            specialization= input("Enter your specialization: ")
+            name= input("Enter your name: ")
+            phone= input("Enter your phone number: ")
+            city= input("Enter all your city availabilities in csv form. Example: (Montreal,Quebec,Ottawa)")
+            instructor= Instructor(specialization, name, phone)
             offering_id = input("Enter offering ID to take: ")
-            if instructor.takeOffering(offering_id):
-                print("Offering taken successfully")
+            if instructor.takeOffering(offering_id, city):
+                print("Lesson taken successfully")
             else:
-                print("Failed to take offering. Might already be taken or doesn't exist")
+                print("Failed to take lesson. Might already be taken or doesn't exist")
             write.release()
 
         elif choice == "4":
-            console.hasReader=True
+            read.acquire()
+            console.readers+=1
+            read.release()
             reader=Reader()
             reader.view_offerings()
-            console.hasReader=False
+            read.acquire()
+            console.readers-=1
+            read.release()
         
         elif choice == "5":
             write.acquire()
-            if console.hasReader:
+            if console.readers:
                 print("Reader(s) already present")
+                write.release()
                 continue
             fname= input("Enter your first name: ")
             lname= input("Enter your last name: ")
@@ -490,8 +552,9 @@ def main():
         
         elif choice == "6":
             write.acquire()
-            if console.hasReader:
+            if console.readers:
                 print("Reader(s) already present")
+                write.release()
                 continue
             fname= input("Enter your first name: ")
             lname= input("Enter your last name: ")
@@ -523,31 +586,42 @@ def main():
             write.release()
 
         elif choice == "7":
-            if console.hasReader:
-                print("Reader(s) already present")
-                continue
+            read.acquire()
+            console.readers+=1
+            read.release()
+            
             clientId= input("Enter your client ID: ")
             console.viewBookingDetails(clientId)
 
         elif choice == "8":
             write.acquire()
-            if console.hasReader:
+            if console.readers:
                 print("Reader(s) already present")
+                write.release()
                 continue
             cid= input("Enter your clientID:")
             bid= input("Enter your bookingID:")
             console.cancelBooking(cid,bid)
             write.release()
             
-
-
         elif choice == "9":
-            read.release()
+            write.acquire()
+            if console.readers:
+                print("Reader(s) already present")
+                write.release()
+                continue
+            ID= input("Enter the client or instructor ID")
+            admin=Administrator()
+            admin.deleteAccount(ID)
+            write.release()
+
+        elif choice == "10":
+            
             break
 
         else:
             print("Invalid choice. Please try again.")
-        read.release()
+        
 
 if __name__ == "__main__":
     main()
